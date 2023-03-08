@@ -5,16 +5,17 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"index/suffixarray"
+	"io/ioutil"
 	"log"
 	"math/rand"
 	"net/http"
 	"os"
 	"regexp"
-	"strings"
 	"strconv"
-	"index/suffixarray"
-	"io/ioutil"
-	
+	"strings"
+	"math"
+
 )
 
 func main() {
@@ -42,9 +43,10 @@ func main() {
 }
 
 type Searcher struct {
-	WordsList []string
-	CompleteWorks string
-	SuffixArray   *suffixarray.Index
+	WordsList       []string
+	WordsListPruned []string
+	CompleteWorks   string
+	SuffixArray     *suffixarray.Index
 }
 
 func handleSearch(searcher Searcher) func(w http.ResponseWriter, r *http.Request) {
@@ -52,8 +54,6 @@ func handleSearch(searcher Searcher) func(w http.ResponseWriter, r *http.Request
 		query, ok := r.URL.Query()["q"]
 
 		queryExactWord, okMulti := r.URL.Query()["exactword"]
-
-		
 
 		if !ok || len(query[0]) < 1 {
 			w.WriteHeader(http.StatusBadRequest)
@@ -66,24 +66,21 @@ func handleSearch(searcher Searcher) func(w http.ResponseWriter, r *http.Request
 			w.Write([]byte("missing search query in URL params"))
 			return
 		}
-	
+
 		exactWord, _ := strconv.ParseBool(queryExactWord[0])
 
 		queryString := query[0]
-		
-			// splitting query string into an array of queries for handling multiple words
+
+		// splitting query string into an array of queries for handling multiple words
 		queryArray := strings.Fields(query[0])
 
-		
-		
 		results := []string{}
-		
-		
-		if (exactWord){
-			results = searcher.Search(strings.ToLower(queryString)) 
-			
-		}else{
-			results = searcher.SearchMultiWord(queryArray) 
+
+		if exactWord {
+			results = searcher.Search(strings.ToLower(queryString))
+
+		} else {
+			results = searcher.SearchMultiWord(queryArray)
 		}
 		buf := &bytes.Buffer{}
 		enc := json.NewEncoder(buf)
@@ -108,14 +105,22 @@ func (s *Searcher) Load(filename string) error {
 	Scanner := bufio.NewScanner(file)
 	Scanner.Split(bufio.ScanWords)
 	words := []string{}
+	prunedWords := []string{}
 	for Scanner.Scan() {
 
 		words = append(words, Scanner.Text())
+
+		nonAlphanumericRegex := regexp.MustCompile(`[\W_]+`)
+
+		// removing special char like ! , . from the string
+		cleanString := nonAlphanumericRegex.ReplaceAllString(Scanner.Text(), "")
+		prunedWords = append(prunedWords, strings.ToLower(cleanString))
 	}
 	if err := Scanner.Err(); err != nil {
 		log.Fatal(err)
 	}
 	s.WordsList = words
+	s.WordsListPruned = prunedWords
 
 	dat, err := ioutil.ReadFile(filename)
 	if err != nil {
@@ -124,7 +129,6 @@ func (s *Searcher) Load(filename string) error {
 	s.CompleteWorks = string(dat)
 	s.SuffixArray = suffixarray.New(bytes.ToLower(dat))
 	return nil
-
 
 }
 
@@ -163,6 +167,12 @@ func min(a, b, c int) int {
 }
 
 func isSimilar(query, word string) bool {
+
+
+	if int(math.Abs(float64(len(word) - len(query)))) > 2{
+
+		return false
+	}
 
 	distanceThreshold := 0
 
@@ -208,6 +218,8 @@ func getSimilarWordsIndex(query string, words []string) []int {
 
 }
 
+
+
 func (s *Searcher) Search(query string) []string {
 	idxs := s.SuffixArray.Lookup([]byte(query), -1)
 	fmt.Printf("idxe")
@@ -218,19 +230,18 @@ func (s *Searcher) Search(query string) []string {
 
 		endIndex := idx + 250
 
-			// prevent accessing index out of range
-			if endIndex >= len(s.CompleteWorks) {
-				endIndex = len(s.CompleteWorks) - 1
+		// prevent accessing index out of range
+		if endIndex >= len(s.CompleteWorks) {
+			endIndex = len(s.CompleteWorks) - 1
 
-			}
+		}
 
-			startIndex := idx - 250
-			// prevent accessing index out of range
-			if startIndex < 0 {
+		startIndex := idx - 250
+		// prevent accessing index out of range
+		if startIndex < 0 {
 
-				startIndex = 0
-			}
-
+			startIndex = 0
+		}
 
 		results = append(results, s.CompleteWorks[startIndex:endIndex])
 	}
@@ -241,7 +252,8 @@ func (s *Searcher) SearchMultiWord(queries []string) []string {
 
 	results := []string{}
 
-	wordArray := s.WordsList
+	wordArray := s.WordsListPruned
+	originalWords := s.WordsList
 	for _, query := range queries {
 		lowercase := strings.ToLower(query)
 
@@ -253,8 +265,8 @@ func (s *Searcher) SearchMultiWord(queries []string) []string {
 			endIndex := idx + 35
 
 			// prevent accessing index out of range
-			if endIndex >= len(wordArray) {
-				endIndex = len(wordArray) - 1
+			if endIndex >= len(originalWords) {
+				endIndex = len(originalWords) - 1
 
 			}
 
@@ -264,7 +276,7 @@ func (s *Searcher) SearchMultiWord(queries []string) []string {
 
 				startIndex = 0
 			}
-			result := strings.Join(wordArray[startIndex:endIndex], " ")
+			result := strings.Join(originalWords[startIndex:endIndex], " ")
 			results = append(results, result)
 		}
 	}
