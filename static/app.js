@@ -20,32 +20,43 @@ const IconButton = ({src, onClick, className}) => {
 	return e('button', {onClick: onClick, className: className}, e(`img`, {src: src, className: "h-6 w-6"}))
 }
 
-const Input = ({value, setValue}) => {
+const Input = ({value, setValue, searching}) => {
 
 
 	
-	return e(`input`, {name: "query",spellCheck: true, required: true, value: value, onChange: (event) => {setValue(event.target.value)}, placeholder: "Search...",className:"border-none outline-none py-2 w-64 ", type:"text"}, null)
+	return e(`input`, {disabled: searching, name: "query",spellCheck: true, required: true, value: value, onChange: (event) => {setValue(event.target.value)}, placeholder: "Search...",className:"border-none outline-none py-2 w-64 ", type:"text"}, null)
 }
 
-const CheckBoxContainer = ({enableExactWord, setEnableExactWord}) => {
+const CheckBoxContainer = ({setEnableMultiWord, enableMultiWord, enableFuzzySearch, setEnableFuzzySearch}) => {
 
 
 
 
-	return e('div', {className: "flex flex-row items-center font-regular text-slate-500 mt-2"}, e(CheckBox, {enableExactWord: enableExactWord, setEnableExactWord: setEnableExactWord}), "Enable fast exact-word search")
+	return e('div', {className: "flex flex-row items-center font-regular text-slate-500 mt-2"}, e(CheckBoxFuzzySearch, {setEnableFuzzySearch, enableFuzzySearch}), "Enable fuzzy-word search (slow)", e(CheckBoxMultiWord, {setEnableMultiWord, enableMultiWord}), "Enable multi-word search")
 
 
 }
 
 
-const CheckBox = ({enableExactWord, setEnableExactWord}) => {
+const CheckBoxMultiWord = ({enableMultiWord, setEnableMultiWord}) => {
 
 	const onChange = (event) => {
 
-		setEnableExactWord(event.target.checked)
+		setEnableMultiWord(event.target.checked)
 	}
-	return e('input', {type: "checkbox", checked: enableExactWord, className: "ml-2 mr-2", onChange: onChange})
+	return e('input', {type: "checkbox", checked: enableMultiWord, className: "ml-2 mr-2", onChange: onChange})
 }
+
+
+const CheckBoxFuzzySearch = ({enableFuzzySearch, setEnableFuzzySearch}) => {
+
+	const onChange = (event) => {
+
+		setEnableFuzzySearch(event.target.checked)
+	}
+	return e('input', {type: "checkbox", checked: enableFuzzySearch, className: "ml-2 mr-2", onChange: onChange})
+}
+
 
 
 const SearchBox = ({searching, setSearchResults}) => {
@@ -59,7 +70,7 @@ const SearchBox = ({searching, setSearchResults}) => {
 		`div`,
 		{ className: "flex flex-row border-solid items-center border-2 border-slate-300 rounded mr-4 relative"},
 		e(`img`, {src: "/icons/searchIcon.svg", className: "h-6 w-6 ml-3 mr-2"}) , 
-		e(Input,{value: value, setValue: setValue}),
+		e(Input,{value, setValue, searching}),
 		searching ? e(Loader) : value ? e(IconButton, {src: "/icons/xmarkIcon.svg", className: "h-6 w-6 ml-2 mr-2", onClick: clearText}) : e(`div`, {className: "h-6 w-6 mr-2 ml-2"})
 	  )
 }
@@ -75,8 +86,9 @@ const SearchContainer = ({setSearchResults, searching}) => {
 const SearchResultsTable = ({results}) => {
 
 
-
-	return e(`div`, {className: "w-full flex flex-col items-center mt-10", dangerouslySetInnerHTML: {__html: results.join(" ")}}
+	console.log("reuslts")
+	console.log(results)
+	return e(`div`, {className: "w-full flex flex-col items-center mt-10", dangerouslySetInnerHTML: {__html: results ? results.join(" ") : ""}}
 		
 	)
 }
@@ -141,9 +153,11 @@ const shouldBeHighlighted = (queries, str2) => {
 		let reformattedQuery = query.toLowerCase().replace(/[\W_]+/g, '')
 
 		let reformattedString = str2.toLowerCase().replace(/[\W_]+/g, '')
+
 		if (reformattedQuery == reformattedString) return true 
 
-		// check for text similarity using edit (levenshtein) distance
+		// check for text similarity using edit (levenshtein) distance for fuzzy search
+		
 		if (isSimilar(reformattedQuery, reformattedString)){
 			return true
 		}
@@ -156,10 +170,16 @@ const shouldBeHighlighted = (queries, str2) => {
 
 }
 
-String.prototype.replaceAll = function(strReplace, strWith) {
+String.prototype.replaceAll = function(queries, strWith) {
     // See http://stackoverflow.com/a/3561711/556609
-    var esc = strReplace.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
-    var reg = new RegExp(esc, 'ig');
+
+	let regExpressions = []
+	for (const query of queries){
+		var esc = query.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
+		regExpressions.push(esc)
+	}
+    
+    var reg = new RegExp(regExpressions.join("|"), 'ig');
     return this.replace(reg, strWith);
 };
 
@@ -169,7 +189,12 @@ const formContainer = () => {
 
 	const [searchResults, setSearchResults] = React.useState(null)
 
-	const [enableExactWord, setEnableExactWord] = React.useState(false)
+	const [enableMultiWord, setEnableMultiWord] = React.useState(true)
+
+	const [enableFuzzySearch, setEnableFuzzySearch] = React.useState(false)
+
+	let controller = null
+    
 
 	const updateTable =  (results, query) => {
 
@@ -179,29 +204,23 @@ const formContainer = () => {
     for (let result of results) {
 
 	 let highlightedResult 
-	  if (!enableExactWord){
+	  if (enableFuzzySearch){
 
 	  // breaking string into individual words and checking if each word should be highlighted
 	  let stringArray = result.split(" ")
 
-	  for (let index in stringArray){
+	  stringArray = stringArray.map((word) => {
 
-		let originalWord = stringArray[index]
-		let highlighted = shouldBeHighlighted(query.split(" "), originalWord)
+		let shouldHighlight = shouldBeHighlighted(query.split(" "), word)
 	
-		if (highlighted){
+		return shouldHighlight ? `<mark class="bg-yellow-300 tracking-tighter">${word}</mark>` : word
 
-
-			stringArray[index] = `<mark class="bg-yellow-300 tracking-tighter">${originalWord}</mark>`
-		}
-
-
-	  } 
-
+	  })
+	 
 	 highlightedResult = stringArray.join(" ")
 	}else{
 
-		highlightedResult = result.replaceAll(query, (originalText) => `<mark class="bg-yellow-300 tracking-tighter">${originalText}</mark>`)
+		highlightedResult = result.replaceAll(enableMultiWord ? query.split(" ") : [query], (originalText) => `<mark class="bg-yellow-300 tracking-tighter">${originalText}</mark>`)
 
 	}
 	  
@@ -216,12 +235,22 @@ const formContainer = () => {
 	
   }
 
+  const abortFetching = () => {
+	console.log('Now aborting');
+	// Abort.
+	controller.abort()
+}
+
 
 const onSubmit = async (ev) => {
 
 	try{
 	
 		ev.preventDefault();
+		if (controller) abortFetching()
+
+		controller = new AbortController();
+		const signal = controller.signal
 		setSearching(true)
 		setSearchResults(null)
 		console.log("searchResults")
@@ -231,9 +260,12 @@ const onSubmit = async (ev) => {
 		const form = document.getElementById("form");
 		const data = Object.fromEntries(new FormData(form));
 
-		fetch(`/search?q=${data.query}&exactword=${enableExactWord}`).then( async response => {
+		fetch(`/search?q=${data.query}&multi=${enableMultiWord}&fuzzy=${enableFuzzySearch}`, {
+                method: 'get',
+                signal: signal,
+            }).then( async response => {
 		
-
+		controller = null
 		const results = await response.json()
 		
 	
@@ -255,7 +287,7 @@ const onSubmit = async (ev) => {
 	  }
 	}
 
-	return e(`form`, {onSubmit: onSubmit, className: "w-full flex flex-col items-center justify-around", id: "form"}, e(SearchContainer, { searching: searching, setSearchResults: setSearchResults}), e(CheckBoxContainer, {enableExactWord: enableExactWord, setEnableExactWord: setEnableExactWord}), searchResults ?  searchResults.length == 0 ? e('div', {className: 'text-slate-500 mt-8 text-2xl'}, "No matching results") :  e(SearchResultsTable, {results: searchResults}) : null )
+	return e(`form`, {onSubmit: onSubmit, className: "w-full flex flex-col items-center justify-around", id: "form"}, e(SearchContainer, { searching, setSearchResults}), e(CheckBoxContainer, {setEnableFuzzySearch, enableFuzzySearch, setEnableMultiWord, enableMultiWord}), searchResults ?  searchResults.length == 0 ? e('div', {className: 'text-slate-500 mt-8 text-2xl'}, "No matching results") :  e(SearchResultsTable, {results: searchResults}) : null )
 }
 
 

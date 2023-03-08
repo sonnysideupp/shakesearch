@@ -8,14 +8,13 @@ import (
 	"index/suffixarray"
 	"io/ioutil"
 	"log"
+	"math"
 	"math/rand"
 	"net/http"
 	"os"
 	"regexp"
 	"strconv"
 	"strings"
-	"math"
-
 )
 
 func main() {
@@ -43,16 +42,18 @@ func main() {
 }
 
 type Searcher struct {
-	WordsList       []string
-	CompleteWorks   string
-	SuffixArray     *suffixarray.Index
+	WordsList     []string
+	CompleteWorks string
+	SuffixArray   *suffixarray.Index
 }
 
 func handleSearch(searcher Searcher) func(w http.ResponseWriter, r *http.Request) {
 	return func(w http.ResponseWriter, r *http.Request) {
 		query, ok := r.URL.Query()["q"]
 
-		queryExactWord, okMulti := r.URL.Query()["exactword"]
+		queryMulti, okMulti := r.URL.Query()["multi"]
+
+		queryFuzzy, okFuzzy := r.URL.Query()["fuzzy"]
 
 		if !ok || len(query[0]) < 1 {
 			w.WriteHeader(http.StatusBadRequest)
@@ -60,26 +61,37 @@ func handleSearch(searcher Searcher) func(w http.ResponseWriter, r *http.Request
 			return
 		}
 
-		if !okMulti || len(queryExactWord[0]) < 1 {
+		if !okMulti || len(queryMulti[0]) < 1 {
 			w.WriteHeader(http.StatusBadRequest)
 			w.Write([]byte("missing search query in URL params"))
 			return
 		}
 
-		exactWord, _ := strconv.ParseBool(queryExactWord[0])
+		if !okFuzzy || len(queryFuzzy[0]) < 1 {
+			w.WriteHeader(http.StatusBadRequest)
+			w.Write([]byte("missing search query in URL params"))
+			return
+		}
 
-		queryString := query[0]
+		multiWord, _ := strconv.ParseBool(queryMulti[0])
+
+		fuzzyWord, _ := strconv.ParseBool(queryFuzzy[0])
 
 		// splitting query string into an array of queries for handling multiple words
-		queryArray := strings.Fields(query[0])
+		queryArray := []string{query[0]}
+
+		if multiWord {
+
+			queryArray = strings.Fields(query[0])
+		}
 
 		results := []string{}
 
-		if exactWord {
-			results = searcher.Search(strings.ToLower(queryString))
+		if fuzzyWord {
+			results = searcher.SearchFuzzy(queryArray)
 
 		} else {
-			results = searcher.SearchMultiWord(queryArray)
+			results = searcher.Search(queryArray)
 		}
 		buf := &bytes.Buffer{}
 		enc := json.NewEncoder(buf)
@@ -113,7 +125,6 @@ func (s *Searcher) Load(filename string) error {
 		log.Fatal(err)
 	}
 	s.WordsList = words
-
 
 	dat, err := ioutil.ReadFile(filename)
 	if err != nil {
@@ -161,13 +172,12 @@ func min(a, b, c int) int {
 
 func isSimilar(query, word string) bool {
 
-
 	nonAlphanumericRegex := regexp.MustCompile(`[\W_]+`)
 
 	// removing special char like ! , . from the string
 	cleanString := nonAlphanumericRegex.ReplaceAllString(word, "")
 
-	if int(math.Abs(float64(len(cleanString) - len(query)))) > 2{
+	if int(math.Abs(float64(len(cleanString)-len(query)))) > 2 {
 
 		return false
 	}
@@ -188,8 +198,6 @@ func isSimilar(query, word string) bool {
 		distanceThreshold = 3
 	}
 
-
-
 	result := levenshteinDistance(query, cleanString)
 
 	return result <= distanceThreshold
@@ -205,6 +213,11 @@ func getSimilarWordsIndex(query string, words []string) []int {
 		if isSimilar(query, lowerCased) {
 
 			indices = append(indices, index)
+
+			if (len(indices) > 500){
+
+				return indices
+			}
 		}
 
 	}
@@ -213,37 +226,53 @@ func getSimilarWordsIndex(query string, words []string) []int {
 
 }
 
+func (s *Searcher) Search(queries []string) []string {
 
-
-func (s *Searcher) Search(query string) []string {
-	idxs := s.SuffixArray.Lookup([]byte(query), -1)
-	// fmt.Printf("idxe")
-	// fmt.Printf(query)
-	// fmt.Printf("%v", idxs)
 	results := []string{}
-	for _, idx := range idxs {
 
-		endIndex := idx + 250
+	// fmt.Printf("Search")
+	// fmt.Printf("%v", queries)
+	for _, query := range queries {
 
-		// prevent accessing index out of range
-		if endIndex >= len(s.CompleteWorks) {
-			endIndex = len(s.CompleteWorks) - 1
+		lowercase := strings.ToLower(query)
+		idxs := s.SuffixArray.Lookup([]byte(lowercase), -1)
 
+		if len(idxs) > 500 {
+
+			idxs = idxs[:500]
 		}
 
-		startIndex := idx - 250
-		// prevent accessing index out of range
-		if startIndex < 0 {
+		for _, idx := range idxs {
 
-			startIndex = 0
+			endIndex := idx + 250
+
+			// prevent accessing index out of range
+			if endIndex >= len(s.CompleteWorks) {
+				endIndex = len(s.CompleteWorks) - 1
+
+			}
+
+			startIndex := idx - 250
+			// prevent accessing index out of range
+			if startIndex < 0 {
+
+				startIndex = 0
+			}
+
+			results = append(results, s.CompleteWorks[startIndex:endIndex])
 		}
 
-		results = append(results, s.CompleteWorks[startIndex:endIndex])
+	}
+	// shuffling the resulting array so the results are presented more randomly for when there are more than 2 queries
+	if len(queries) > 1 {
+		rand.Shuffle(len(results), func(i, j int) {
+			results[i], results[j] = results[j], results[i]
+		})
 	}
 	return results
 }
 
-func (s *Searcher) SearchMultiWord(queries []string) []string {
+func (s *Searcher) SearchFuzzy(queries []string) []string {
 
 	results := []string{}
 
@@ -253,7 +282,10 @@ func (s *Searcher) SearchMultiWord(queries []string) []string {
 		lowercase := strings.ToLower(query)
 
 		idxs := getSimilarWordsIndex(lowercase, wordArray)
+		if len(idxs) > 500 {
 
+			idxs = idxs[:500]
+		}
 		for _, idx := range idxs {
 			//fmt.Printf(string(idx))
 
