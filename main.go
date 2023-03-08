@@ -44,7 +44,6 @@ func main() {
 
 type Searcher struct {
 	WordsList       []string
-	WordsListPruned []string
 	CompleteWorks   string
 	SuffixArray     *suffixarray.Index
 }
@@ -105,22 +104,16 @@ func (s *Searcher) Load(filename string) error {
 	Scanner := bufio.NewScanner(file)
 	Scanner.Split(bufio.ScanWords)
 	words := []string{}
-	prunedWords := []string{}
 	for Scanner.Scan() {
 
 		words = append(words, Scanner.Text())
 
-		nonAlphanumericRegex := regexp.MustCompile(`[\W_]+`)
-
-		// removing special char like ! , . from the string
-		cleanString := nonAlphanumericRegex.ReplaceAllString(Scanner.Text(), "")
-		prunedWords = append(prunedWords, strings.ToLower(cleanString))
 	}
 	if err := Scanner.Err(); err != nil {
 		log.Fatal(err)
 	}
 	s.WordsList = words
-	s.WordsListPruned = prunedWords
+
 
 	dat, err := ioutil.ReadFile(filename)
 	if err != nil {
@@ -169,7 +162,12 @@ func min(a, b, c int) int {
 func isSimilar(query, word string) bool {
 
 
-	if int(math.Abs(float64(len(word) - len(query)))) > 2{
+	nonAlphanumericRegex := regexp.MustCompile(`[\W_]+`)
+
+	// removing special char like ! , . from the string
+	cleanString := nonAlphanumericRegex.ReplaceAllString(word, "")
+
+	if int(math.Abs(float64(len(cleanString) - len(query)))) > 2{
 
 		return false
 	}
@@ -190,10 +188,7 @@ func isSimilar(query, word string) bool {
 		distanceThreshold = 3
 	}
 
-	nonAlphanumericRegex := regexp.MustCompile(`[\W_]+`)
 
-	// removing special char like ! , . from the string
-	cleanString := nonAlphanumericRegex.ReplaceAllString(word, "")
 
 	result := levenshteinDistance(query, cleanString)
 
@@ -222,9 +217,9 @@ func getSimilarWordsIndex(query string, words []string) []int {
 
 func (s *Searcher) Search(query string) []string {
 	idxs := s.SuffixArray.Lookup([]byte(query), -1)
-	fmt.Printf("idxe")
-	fmt.Printf(query)
-	fmt.Printf("%v", idxs)
+	// fmt.Printf("idxe")
+	// fmt.Printf(query)
+	// fmt.Printf("%v", idxs)
 	results := []string{}
 	for _, idx := range idxs {
 
@@ -252,8 +247,8 @@ func (s *Searcher) SearchMultiWord(queries []string) []string {
 
 	results := []string{}
 
-	wordArray := s.WordsListPruned
-	originalWords := s.WordsList
+	wordArray := s.WordsList
+
 	for _, query := range queries {
 		lowercase := strings.ToLower(query)
 
@@ -265,8 +260,8 @@ func (s *Searcher) SearchMultiWord(queries []string) []string {
 			endIndex := idx + 35
 
 			// prevent accessing index out of range
-			if endIndex >= len(originalWords) {
-				endIndex = len(originalWords) - 1
+			if endIndex >= len(wordArray) {
+				endIndex = len(wordArray) - 1
 
 			}
 
@@ -276,7 +271,7 @@ func (s *Searcher) SearchMultiWord(queries []string) []string {
 
 				startIndex = 0
 			}
-			result := strings.Join(originalWords[startIndex:endIndex], " ")
+			result := strings.Join(wordArray[startIndex:endIndex], " ")
 			results = append(results, result)
 		}
 	}
