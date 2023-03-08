@@ -32,7 +32,7 @@ const CheckBoxContainer = ({enableExactWord, setEnableExactWord}) => {
 
 
 
-	return e('div', {className: "flex flex-row items-center font-regular text-slate-500 mt-2"}, e(CheckBox, {enableExactWord: enableExactWord, setEnableExactWord: setEnableExactWord}), "Enable exact word search")
+	return e('div', {className: "flex flex-row items-center font-regular text-slate-500 mt-2"}, e(CheckBox, {enableExactWord: enableExactWord, setEnableExactWord: setEnableExactWord}), "Enable fast exact-word search")
 
 
 }
