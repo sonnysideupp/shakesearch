@@ -88,7 +88,7 @@ const SearchResultsTable = ({results}) => {
 
 	console.log("reuslts")
 	console.log(results)
-	return e(`div`, {className: "w-full flex flex-col items-center mt-10", dangerouslySetInnerHTML: {__html: results ? results.join(" ") : ""}}
+	return e(`div`, {className: "w-screen flex flex-col items-center mt-10", dangerouslySetInnerHTML: {__html: results ? results.join(" ") : ""}}
 		
 	)
 }
@@ -218,13 +218,16 @@ const formContainer = () => {
 	  })
 	 
 	 highlightedResult = stringArray.join(" ")
+	 highlightedResult = highlightedResult.replace(/\n/g,"<br />")
 	}else{
 
 		highlightedResult = result.replaceAll(enableMultiWord ? query.split(" ") : [query], (originalText) => `<mark class="bg-yellow-300 tracking-tighter">${originalText}</mark>`)
 
+		highlightedResult = highlightedResult.replace(/\n/g,"<br />")
 	}
 	  
       rows.push( `<div class="p-5 w-1/2" >  ${highlightedResult}</div>` );
+	  rows.push(`<div class="border-t-2 border-slate-500 w-1/2"> </div>`)
     }
 	
 
